@@ -1,0 +1,6 @@
+﻿playwright>=1.40.0
+undetected-playwright>=0.0.6
+httpx>=0.25.0
+pydantic>=2.5.0
+typer>=0.9.0
+textual>=0.41.0
