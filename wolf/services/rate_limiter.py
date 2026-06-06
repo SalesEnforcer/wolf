@@ -7,27 +7,26 @@ import json
 from pathlib import Path
 
 class HumanBehavior:
-    \"\"\"Service 3: Human-like search behavior with rate limiting\"\"\"
+    """Service 3: Human-like search behavior with rate limiting"""
     
     def __init__(self):
-        self.base_delay = (3.0, 8.0)  # Base delay range between actions
-        self.reading_pause = (15.0, 30.0)  # Simulating reading results
-        self.scroll_pause = (2.0, 5.0)  # Pause between scrolls
-        self.typing_delay = (0.05, 0.15)  # Delay per character when typing
+        self.base_delay = (3.0, 8.0)
+        self.reading_pause = (15.0, 30.0)
+        self.scroll_pause = (2.0, 5.0)
+        self.typing_delay = (0.05, 0.15)
         self.session_start_time = None
         self.actions_count = 0
         self.data_dir = Path("wolf/data")
         self.data_dir.mkdir(parents=True, exist_ok=True)
     
     async def human_delay(self, min_seconds: float = None, max_seconds: float = None):
-        \"\"\"Random delay to simulate human behavior\"\"\"
+        """Random delay to simulate human behavior"""
         if min_seconds is None:
             min_seconds = self.base_delay[0]
         if max_seconds is None:
             max_seconds = self.base_delay[1]
         
         delay = random.uniform(min_seconds, max_seconds)
-        # Add jitter (±20%)
         jitter = delay * random.uniform(-0.2, 0.2)
         final_delay = max(0.5, delay + jitter)
         
@@ -35,22 +34,22 @@ class HumanBehavior:
         self.actions_count += 1
     
     async def simulate_reading(self):
-        \"\"\"Simulate reading search results\"\"\"
+        """Simulate reading search results"""
         delay = random.uniform(self.reading_pause[0], self.reading_pause[1])
         await asyncio.sleep(delay)
     
     async def simulate_scroll_pause(self):
-        \"\"\"Pause between scrolling actions\"\"\"
+        """Pause between scrolling actions"""
         delay = random.uniform(self.scroll_pause[0], self.scroll_pause[1])
         await asyncio.sleep(delay)
     
     async def simulate_typing(self, text: str):
-        \"\"\"Simulate human typing speed\"\"\"
+        """Simulate human typing speed"""
         for char in text:
             await asyncio.sleep(random.uniform(self.typing_delay[0], self.typing_delay[1]))
     
     def can_run(self, cooldown_hours: int = 8) -> tuple[bool, Optional[str]]:
-        \"\"\"Check if enough time has passed since last run\"\"\"
+        """Check if enough time has passed since last run"""
         state_file = self.data_dir / "agent_state.json"
         
         if not state_file.exists():
@@ -75,7 +74,7 @@ class HumanBehavior:
         return True, None
     
     def save_run_state(self, city: str, niche: str, leads_count: int, search_term: str):
-        \"\"\"Save run state after completion\"\"\"
+        """Save run state after completion"""
         state_file = self.data_dir / "agent_state.json"
         
         state = {
@@ -94,7 +93,7 @@ class HumanBehavior:
             json.dump(state, f, indent=2)
     
     def get_total_leads(self) -> int:
-        \"\"\"Get total leads collected\"\"\"
+        """Get total leads collected"""
         state_file = self.data_dir / "agent_state.json"
         if state_file.exists():
             try:
@@ -106,7 +105,7 @@ class HumanBehavior:
         return 0
     
     def get_last_run_info(self) -> Optional[dict]:
-        \"\"\"Get information about last run\"\"\"
+        """Get information about last run"""
         state_file = self.data_dir / "agent_state.json"
         if state_file.exists():
             try:

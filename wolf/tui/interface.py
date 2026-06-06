@@ -7,20 +7,21 @@ from textual.message import Message
 from typing import Optional
 import asyncio
 from datetime import datetime
+from pathlib import Path
+import json
 
 from ..services.rate_limiter import HumanBehavior
 from ..services.business_finder import BusinessFinder
 from ..services.website_verifier import WebsiteVerifier
 from ..services.google_maps_scraper import GoogleMapsScraper
-from ..config.models import Country, Niche, City
 
 class MainMenu(Screen):
-    \"\"\"Main menu screen\"\"\"
+    """Main menu screen"""
     
     def compose(self) -> ComposeResult:
         yield Header()
         yield Container(
-            Static("🐺 WOLF AGENT v1.0.0-beta", classes="title"),
+            Static("WOLF AGENT v1.0.0-beta", classes="title"),
             Static("SMB Lead Generator - Zero Cost Edition", classes="subtitle"),
             Static("", classes="spacer"),
             Button("A. Assess Current Lead List", variant="primary", id="assess"),
@@ -42,12 +43,12 @@ class MainMenu(Screen):
             self.app.exit()
 
 class AssessScreen(Screen):
-    \"\"\"Screen to assess current leads\"\"\"
+    """Screen to assess current leads"""
     
     def compose(self) -> ComposeResult:
         yield Header()
         yield ScrollableContainer(
-            Static("📊 Current Lead Assessment", classes="title"),
+            Static("Current Lead Assessment", classes="title"),
             Static(id="stats"),
             Static(id="recent_leads"),
             classes="assess-container"
@@ -69,24 +70,23 @@ Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
         """
         stats_widget.update(stats_text)
         
-        # Show recent leads
         recent = sorted(leads, key=lambda x: x.get('discovered_at', ''), reverse=True)[:10]
         recent_widget = self.query_one("#recent_leads", Static)
         recent_text = "Recent Leads:\n" + "="*50 + "\n"
         for lead in recent:
-            recent_text += f"• {lead.get('name', 'Unknown')} - {lead.get('city', 'N/A')}\n"
+            recent_text += f"- {lead.get('name', 'Unknown')} - {lead.get('city', 'N/A')}\n"
         recent_widget.update(recent_text)
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.app.pop_screen()
 
 class ExportScreen(Screen):
-    \"\"\"Screen to export leads\"\"\"
+    """Screen to export leads"""
     
     def compose(self) -> ComposeResult:
         yield Header()
         yield Container(
-            Static("💾 Export Leads", classes="title"),
+            Static("Export Leads", classes="title"),
             Static("Export format:", classes="label"),
             Horizontal(
                 Button("JSON", variant="primary", id="export_json"),
@@ -135,18 +135,20 @@ class ExportScreen(Screen):
                     f.write("-" * 50 + "\n")
         
         status = self.query_one("#export_status", Static)
-        status.update(f"✅ Exported {len(leads)} leads to {filepath}")
+        status.update(f"Exported {len(leads)} leads to {filepath}")
 
 class SearchConfigScreen(Screen):
-    \"\"\"Screen to configure search parameters\"\"\"
+    """Screen to configure search parameters"""
     
     def compose(self) -> ComposeResult:
         yield Header()
         yield Container(
-            Static("🎯 Configure Search", classes="title"),
+            Static("Configure Search", classes="title"),
             Static("Where are we looking?", classes="subtitle"),
             Select(
-                [(c.value, c.value) for c in Country],
+                [("United States", "United States"), ("United Kingdom", "United Kingdom"),
+                 ("Canada", "Canada"), ("Australia", "Australia"), ("Nigeria", "Nigeria"),
+                 ("South Africa", "South Africa"), ("Kenya", "Kenya"), ("Ghana", "Ghana")],
                 prompt="Select Country",
                 id="country"
             ),
@@ -164,7 +166,6 @@ class SearchConfigScreen(Screen):
         yield Footer()
     
     def on_mount(self) -> None:
-        # Load niches
         try:
             with open("wolf/config/niches.json", 'r') as f:
                 niches_data = json.load(f)
@@ -176,17 +177,21 @@ class SearchConfigScreen(Screen):
     
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "country":
-            # Load cities for selected country
             try:
                 with open("wolf/config/cities.json", 'r') as f:
                     cities_data = json.load(f)
                 
                 country_name = event.value
-                country_enum = next(c for c in Country if c.value == country_name)
+                country_map = {
+                    "United States": "US", "United Kingdom": "UK", "Canada": "CA",
+                    "Australia": "AU", "Nigeria": "NG", "South Africa": "ZA",
+                    "Kenya": "KE", "Ghana": "GH"
+                }
+                country_code = country_map.get(country_name, "")
                 
                 filtered_cities = [
                     c for c in cities_data.get("cities", [])
-                    if c.get("country") == country_enum.name
+                    if c.get("country") == country_code
                 ]
                 
                 city_select = self.query_one("#city", Select)
@@ -211,13 +216,13 @@ class SearchConfigScreen(Screen):
             
             if not all([country, city, niche]):
                 status = self.query_one("#config_status", Static)
-                status.update("❌ Please select all fields")
+                status.update("Please select all fields")
                 return
             
             self.app.push_screen(SearchProgressScreen(country, city, niche))
 
 class SearchProgressScreen(Screen):
-    \"\"\"Screen showing search progress\"\"\"
+    """Screen showing search progress"""
     
     def __init__(self, country: str, city: str, niche: str):
         super().__init__()
@@ -226,11 +231,12 @@ class SearchProgressScreen(Screen):
         self.niche = niche
         self.scraper = None
         self.search_task = None
+        self.log_lines = []
     
     def compose(self) -> ComposeResult:
         yield Header()
         yield Container(
-            Static(f"🔍 Searching for {self.niche} in {self.city}", classes="title"),
+            Static(f"Searching for {self.niche} in {self.city}", classes="title"),
             ProgressBar(total=20, id="progress"),
             Static(id="progress_text"),
             ScrollableContainer(
@@ -243,60 +249,57 @@ class SearchProgressScreen(Screen):
         yield Footer()
     
     def on_mount(self) -> None:
-        # Start the search
         self.search_task = asyncio.create_task(self.run_search())
     
+    def add_log(self, message: str):
+        """Add a line to the log"""
+        self.log_lines.append(message)
+        log_widget = self.query_one("#log", Static)
+        log_widget.update("\n".join(self.log_lines))
+    
     async def run_search(self):
-        \"\"\"Execute the search process\"\"\"
-        log = self.query_one("#log", Static)
+        """Execute the search process"""
         progress = self.query_one("#progress", ProgressBar)
         progress_text = self.query_one("#progress_text", Static)
         
         try:
-            # Initialize services
             behavior = HumanBehavior()
             
-            # Check cooldown
             can_run, message = behavior.can_run()
             if not can_run:
-                log.update(f"❌ {message}")
+                self.add_log(f"COOLDOWN: {message}")
                 return
             
-            log.update("🚀 Initializing Wolf Agent...\n")
+            self.add_log("Initializing Wolf Agent...")
             
-            # Initialize scraper
             self.scraper = GoogleMapsScraper()
-            log.update(f"{log.renderable}\n🌐 Launching browser...")
+            self.add_log("Launching browser...")
             await self.scraper.initialize_browser()
             
-            log.update(f"{log.renderable}\n✅ Browser ready")
+            self.add_log("Browser ready")
             
-            # Search for businesses
-            log.update(f"{log.renderable}\n🔍 Searching: '{self.niche} in {self.city}'")
+            self.add_log(f"Searching: {self.niche} in {self.city}")
             raw_businesses = await self.scraper.search_businesses(
                 self.niche, self.city, max_results=30
             )
             
-            log.update(f"{log.renderable}\n📊 Found {len(raw_businesses)} businesses without websites")
+            self.add_log(f"Found {len(raw_businesses)} businesses without websites")
             
-            # Verify websites
             finder = BusinessFinder()
             verifier = WebsiteVerifier()
             verified_leads = []
             
-            for i, business in enumerate(raw_businesses[:25]):  # Get extras for filtering
+            for i, business in enumerate(raw_businesses[:25]):
                 if len(verified_leads) >= 20:
                     break
                 
-                # Check for duplicates
                 if finder.is_duplicate(business.get("name"), business.get("phone")):
-                    log.update(f"{log.renderable}\n⏭️  Skipping duplicate: {business.get('name')}")
+                    self.add_log(f"Skipping duplicate: {business.get('name')}")
                     continue
                 
-                # Verify no website
-                log.update(f"{log.renderable}\n🔍 Verifying: {business.get('name')}")
+                self.add_log(f"Verifying: {business.get('name')}")
                 
-                await behavior.human_delay(1, 3)  # Human-like delay
+                await behavior.human_delay(1, 3)
                 
                 verification = await verifier.verify_no_website(
                     business.get("name"),
@@ -310,15 +313,13 @@ class SearchProgressScreen(Screen):
                     business["niche"] = self.niche
                     business["country"] = self.country
                     verified_leads.append(business)
-                    log.update(f"{log.renderable}\n✅ Confirmed no website: {business.get('name')}")
+                    self.add_log(f"Confirmed no website: {business.get('name')}")
                 else:
-                    log.update(f"{log.renderable}\n❌ Website found: {business.get('name')}")
+                    self.add_log(f"Website found: {business.get('name')}")
                 
-                # Update progress
                 progress.update(progress=len(verified_leads))
                 progress_text.update(f"Leads found: {len(verified_leads)}/20")
             
-            # Save leads
             if verified_leads:
                 finder.save_leads(verified_leads)
                 behavior.save_run_state(
@@ -326,21 +327,22 @@ class SearchProgressScreen(Screen):
                     f"{self.niche} in {self.city}"
                 )
                 
-                log.update(f"{log.renderable}\n\n✅ Search complete!")
-                log.update(f"{log.renderable}\n📊 Total new leads: {len(verified_leads)}")
-                log.update(f"{log.renderable}\n💾 Leads saved to wolf/data/leads.json")
+                self.add_log("")
+                self.add_log("Search complete!")
+                self.add_log(f"Total new leads: {len(verified_leads)}")
+                self.add_log("Leads saved to wolf/data/leads.json")
             else:
-                log.update(f"{log.renderable}\n\n⚠️  No new leads found")
+                self.add_log("")
+                self.add_log("No new leads found")
             
             progress.update(progress=20)
             
         except Exception as e:
-            log.update(f"{log.renderable}\n\n❌ Error: {str(e)}")
+            self.add_log(f"ERROR: {str(e)}")
         finally:
             if self.scraper:
                 await self.scraper.close()
             
-            # Show done button
             cancel_btn = self.query_one("#cancel", Button)
             cancel_btn.label = "Done"
             cancel_btn.variant = "primary"
@@ -355,19 +357,19 @@ class SearchProgressScreen(Screen):
             self.app.pop_screen()
 
 class WolfApp(App):
-    \"\"\"Main Wolf Agent Application\"\"\"
+    """Main Wolf Agent Application"""
     
     CSS = """
     .title {
         text-align: center;
         text-style: bold;
-        color: ;
+        color: $accent;
         padding: 1;
     }
     
     .subtitle {
         text-align: center;
-        color: -muted;
+        color: $text-muted;
         padding-bottom: 1;
     }
     
@@ -402,12 +404,12 @@ class WolfApp(App):
     
     .log-container {
         height: 20;
-        border: solid ;
+        border: solid $primary;
         margin-top: 2;
     }
     
     .status {
-        color: -muted;
+        color: $text-muted;
         text-align: center;
     }
     
@@ -436,7 +438,7 @@ class WolfApp(App):
     
     def on_mount(self) -> None:
         self.push_screen(MainMenu())
-        self.title = "🐺 Wolf Agent v1.0.0-beta"
+        self.title = "Wolf Agent v1.0.0-beta"
         self.sub_title = "SMB Lead Generator"
     
     def action_quit(self) -> None:

@@ -5,13 +5,12 @@ from urllib.parse import urlparse
 import re
 
 class WebsiteVerifier:
-    \"\"\"Service 2: Verify if a business actually has a website\"\"\"
+    """Service 2: Verify if a business actually has a website"""
     
     def __init__(self):
         self.timeout = 10.0
         self.max_redirects = 5
         self.common_patterns = [
-            # Common patterns to try for website discovery
             lambda name: name.lower().replace(" ", ""),
             lambda name: name.lower().replace(" ", "-"),
             lambda name: name.lower().replace(" ", "").replace("'", ""),
@@ -20,11 +19,10 @@ class WebsiteVerifier:
         self.common_tlds = [".com", ".net", ".org", ".co", ".biz", ".io"]
     
     async def check_website_exists(self, url: str) -> Tuple[bool, Optional[str]]:
-        \"\"\"Check if a website exists and is accessible\"\"\"
+        """Check if a website exists and is accessible"""
         if not url or url in ["none", "null", "undefined", ""]:
             return False, None
         
-        # Clean URL
         url = url.strip()
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -38,14 +36,12 @@ class WebsiteVerifier:
                 if response.status_code < 400:
                     return True, str(response.url)
                 elif response.status_code == 403:
-                    # Try GET request for some sites that block HEAD
                     response = await client.get(url)
                     return response.status_code < 400, str(response.url)
                 else:
                     return False, None
                     
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ConnectTimeout):
-            # Try with http:// as fallback
             if url.startswith('https://'):
                 try:
                     http_url = url.replace('https://', 'http://', 1)
@@ -59,10 +55,7 @@ class WebsiteVerifier:
             return False, None
     
     async def discover_website(self, business_name: str, city: Optional[str] = None) -> Tuple[bool, Optional[str]]:
-        \"\"\"Try to discover a business website through common patterns\"\"\"
-        # This is a basic implementation - in production you'd want to use search engines
-        # For now, we'll try common URL patterns
-        
+        """Try to discover a business website through common patterns"""
         name_clean = business_name.lower().strip()
         
         for pattern in self.common_patterns:
@@ -76,7 +69,7 @@ class WebsiteVerifier:
         return False, None
     
     async def verify_no_website(self, business_name: str, raw_website: Optional[str] = None, city: Optional[str] = None) -> dict:
-        \"\"\"Comprehensive check - verify business has no website\"\"\"
+        """Comprehensive check - verify business has no website"""
         result = {
             "has_website": False,
             "website_url": None,
@@ -84,7 +77,6 @@ class WebsiteVerifier:
             "verification_method": None
         }
         
-        # First check if Google Maps provided a website
         if raw_website and raw_website not in ["", "none", "null", "undefined"]:
             exists, final_url = await self.check_website_exists(raw_website)
             if exists:
@@ -94,7 +86,6 @@ class WebsiteVerifier:
                 result["verification_method"] = "google_maps_provided"
                 return result
         
-        # Try to discover website through patterns
         exists, url = await self.discover_website(business_name, city)
         if exists:
             result["has_website"] = True
@@ -103,7 +94,6 @@ class WebsiteVerifier:
             result["verification_method"] = "pattern_discovery"
             return result
         
-        # If we get here, we're reasonably confident there's no website
         result["verified"] = True
         result["verification_method"] = "no_website_found"
         

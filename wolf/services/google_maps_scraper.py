@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 from datetime import datetime
 
-# We'll use playwright for free Google Maps scraping
 try:
     from playwright.async_api import async_playwright
 except ImportError:
@@ -17,21 +16,20 @@ except ImportError:
     from playwright.async_api import async_playwright
 
 class GoogleMapsScraper:
-    \"\"\"Core Google Maps scraping using Playwright (free)\"\"\"
+    """Core Google Maps scraping using Playwright (free)"""
     
     def __init__(self):
         self.browser = None
         self.context = None
         self.page = None
-        self.debug_mode = True  # Set to True to see browser for debugging
+        self.debug_mode = True
         self.data_dir = Path("wolf/data")
         self.data_dir.mkdir(parents=True, exist_ok=True)
     
     async def initialize_browser(self):
-        \"\"\"Launch browser with anti-detection measures\"\"\"
+        """Launch browser with anti-detection measures"""
         self.playwright = await async_playwright().start()
         
-        # Launch with realistic browser fingerprint
         self.browser = await self.playwright.chromium.launch(
             headless=not self.debug_mode,
             args=[
@@ -48,24 +46,21 @@ class GoogleMapsScraper:
             ]
         )
         
-        # Create context with realistic settings
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             locale='en-US',
             timezone_id='America/Chicago',
-            geolocation={'latitude': 40.7128, 'longitude': -74.0060},  # Default to NYC
+            geolocation={'latitude': 40.7128, 'longitude': -74.0060},
             permissions=['geolocation']
         )
         
         self.page = await self.context.new_page()
         
-        # Add stealth scripts
         await self.page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
             
-            // Override permissions
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
@@ -73,19 +68,17 @@ class GoogleMapsScraper:
                 originalQuery(parameters)
             );
             
-            // Overwrite plugins
             Object.defineProperty(navigator, 'plugins', {
                 get: () => [1, 2, 3, 4, 5]
             });
             
-            // Overwrite languages
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['en-US', 'en']
             });
         """)
     
     async def search_businesses(self, niche: str, city: str, max_results: int = 20) -> List[dict]:
-        \"\"\"Search Google Maps for businesses\"\"\"
+        """Search Google Maps for businesses"""
         if not self.page:
             await self.initialize_browser()
         
@@ -93,40 +86,30 @@ class GoogleMapsScraper:
         search_query = f"{niche} in {city}"
         encoded_query = search_query.replace(" ", "+")
         
-        # Navigate to Google Maps
         maps_url = f"https://www.google.com/maps/search/{encoded_query}"
         
         try:
             await self.page.goto(maps_url, wait_until='networkidle', timeout=30000)
-            
-            # Wait for results to load
             await asyncio.sleep(random.uniform(3, 5))
             
-            # Check for CAPTCHA or blocking
             if await self._check_captcha():
-                print("\n⚠️  CAPTCHA detected! Please solve it manually in the browser window...")
+                print("\nCAPTCHA detected! Please solve it manually in the browser window...")
                 print("The browser will remain open for 2 minutes.")
                 await asyncio.sleep(120)
                 if await self._check_captcha():
-                    print("❌ CAPTCHA still present. Please try again later.")
+                    print("CAPTCHA still present. Please try again later.")
                     return []
             
-            # Scroll to load more results
             await self._scroll_results()
-            
-            # Extract business listings
             businesses = await self._extract_businesses(max_results)
             
         except Exception as e:
             print(f"Error during search: {e}")
-        finally:
-            # Don't close browser - let the caller manage it
-            pass
         
         return businesses
     
     async def _check_captcha(self) -> bool:
-        \"\"\"Check if CAPTCHA is present\"\"\"
+        """Check if CAPTCHA is present"""
         try:
             captcha_selectors = [
                 'iframe[src*="recaptcha"]',
@@ -145,20 +128,17 @@ class GoogleMapsScraper:
             return False
     
     async def _scroll_results(self):
-        \"\"\"Scroll through results to load more\"\"\"
+        """Scroll through results to load more"""
         try:
-            # Find the results panel
             results_panel = await self.page.query_selector('[role="feed"]')
             if not results_panel:
                 results_panel = await self.page.query_selector('div[aria-label*="Results"]')
             
             if results_panel:
-                # Scroll multiple times with pauses
                 for _ in range(5):
                     await results_panel.evaluate('el => el.scrollBy(0, 500)')
                     await asyncio.sleep(random.uniform(2, 4))
             else:
-                # Fallback: scroll the whole page
                 for _ in range(5):
                     await self.page.evaluate('window.scrollBy(0, 500)')
                     await asyncio.sleep(random.uniform(2, 4))
@@ -167,26 +147,21 @@ class GoogleMapsScraper:
             print(f"Scrolling error: {e}")
     
     async def _extract_businesses(self, max_results: int) -> List[dict]:
-        \"\"\"Extract business data from current page\"\"\"
+        """Extract business data from current page"""
         businesses = []
         
         try:
-            # Wait for listings to be present
             await self.page.wait_for_selector('[role="article"]', timeout=10000)
-            
-            # Get all business listings
             listings = await self.page.query_selector_all('[role="article"]')
             
-            for listing in listings[:max_results * 2]:  # Get extra for filtering
+            for listing in listings[:max_results * 2]:
                 try:
-                    # Extract business details
                     name_elem = await listing.query_selector('div.fontHeadlineSmall')
                     if not name_elem:
                         name_elem = await listing.query_selector('[aria-label]')
                     
                     name = await name_elem.inner_text() if name_elem else "Unknown"
                     
-                    # Check if website link exists
                     website = None
                     website_elem = await listing.query_selector('a[data-value*="Website"]')
                     if not website_elem:
@@ -195,7 +170,6 @@ class GoogleMapsScraper:
                     if website_elem:
                         website = await website_elem.get_attribute('href')
                     
-                    # Get other details
                     address_elem = await listing.query_selector('div.fontBodyMedium span')
                     address = await address_elem.inner_text() if address_elem else None
                     
@@ -205,7 +179,6 @@ class GoogleMapsScraper:
                     rating_elem = await listing.query_selector('span[aria-hidden="true"]')
                     rating = await rating_elem.inner_text() if rating_elem else None
                     
-                    # Only include businesses without websites
                     if not website:
                         business_data = {
                             "name": name,
@@ -230,7 +203,7 @@ class GoogleMapsScraper:
         return businesses
     
     async def close(self):
-        \"\"\"Close browser and cleanup\"\"\"
+        """Close browser and cleanup"""
         try:
             if self.context:
                 await self.context.close()
